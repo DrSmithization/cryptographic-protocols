@@ -1,0 +1,404 @@
+; 3DES block transformation
+;
+
+global _DES3
+
+; $1 - left
+; $2 - right
+; $3 - key
+%macro ROUND_STEP 3
+    mov     eax, %2
+    ror     eax, 0x04
+    xor     eax, [esi + %3]
+    and     eax, 0xFCFCFCFC
+    mov     bl, al
+    mov     cl, ah
+    ror     eax, 0x10
+    xor     %1, [dsps + 0x100*0x06 + ebx]
+    mov     bl, al
+    xor     %1, [dsps + 0x100*0x04 + ecx]
+    mov     cl, ah
+    xor     %1, [dsps + 0x100*0x02 + ebx]
+    mov     eax, [esi + 0x04 + %3]
+    xor     %1, [dsps + ecx]
+    xor     eax, %2
+    and     eax, 0xFCFCFCFC
+    mov     bl, al
+    mov     cl, ah
+    ror     eax, 0x10
+    xor     %1, [dsps + 0x100*0x07 + ebx]
+    mov     bl, al
+    xor     %1, [dsps + 0x100*0x05 + ecx]
+    mov     cl, ah
+    xor     %1, [dsps + 0x100*0x03 + ebx]
+    xor     %1, [dsps + 0x100*0x01 + ecx]
+%endmacro
+
+section .text
+
+_DES3:
+    push    ebp
+    mov     ebp, esp
+
+    push    esi
+    push    edi
+    push    ebx
+; Attention: fastcall
+;   edx <- key pointer
+;   ecx <- data pointer
+    push    edx         ; key pointer to stack
+
+    mov     esi, ecx
+    lodsd               ; eax <- data[0]
+    bswap   eax
+    mov     edi, eax    ; edi <- left
+    lodsd
+    mov     edx, eax    ; edx <- data[1]
+    bswap   edx         ; edx <- right
+
+; Initial permutation (based on Schneier book)
+    ; work = ((left >> 4) ^ right) & 0x0F0F0F0F
+    mov     eax, edi
+    shr     eax, 0x04
+    xor     eax, edx
+    and     eax, 0x0F0F0F0F
+
+    ; right = right ^ work
+    xor     edx, eax
+
+    ; left ^= work << 4
+    shl     eax, 0x04
+    xor     edi, eax
+
+    ; work = ((left >> 16) ^ right) & 0x0000FFFF
+    mov     eax, edi
+    shr     eax, 0x10
+    xor     eax, edx
+    and     eax, 0xFFFF
+
+    ; right ^= work
+    xor     edx, eax
+
+    ; left ^= work << 16
+    shl     eax, 0x10
+    xor     edi, eax
+
+    ; work = ((right >> 2) ^ left) & 0x33333333
+    mov     eax, edx
+    shr     eax, 0x02
+    xor     eax, edi
+    and     eax, 0x33333333
+
+    ; left ^= work
+    xor     edi, eax
+
+    ; right ^= (work << 2)
+    shl     eax, 0x02
+    xor     edx, eax
+
+    ; work = ((right >> 8) ^ left) & 0x00FF00FF
+    mov     eax, edx
+    shr     eax, 0x08
+    xor     eax, edi
+    and     eax, 0x00FF00FF
+
+    ; left ^= work
+    xor     edi, eax
+
+    ; right ^= (work << 8)
+    shl     eax, 0x08
+    xor     edx, eax
+
+    ; right <<<= 1
+    rol     edx, 0x01
+
+    ; work = (left ^ right) & 0xAAAAAAAA
+    mov     eax, edi
+    xor     eax, edx
+    and     eax, 0xAAAAAAAA
+
+    ; left ^= work
+    xor     edi, eax
+
+    ; right ^= work
+    xor     edx, eax
+
+    ; left <<<= 3
+    rol     edi, 0x03
+
+    ; right <<<= 2
+    rol     edx, 0x02
+
+    pop     esi
+    push    ecx
+
+    xor     ebx, ebx
+    xor     ecx, ecx
+
+    ; rounds
+
+    ; first key
+%define left edi
+%define right edx
+%assign key 0
+%rep 16
+    ROUND_STEP left, right, key
+    %ifidn left, edi
+        %define left edx
+        %define right edi
+    %else
+        %define left edi
+        %define right edx
+    %endif
+    %assign key key + 8
+%endrep
+
+    ; second key
+%define left edx
+%define right edi
+%assign key 128
+%rep 16
+    ROUND_STEP left, right, key
+    %ifidn left, edx
+        %define left edi
+        %define right edx
+    %else
+        %define left edx
+        %define right edi
+    %endif
+    %assign key key + 8
+%endrep
+
+    ; third key
+%define left edi
+%define right edx
+%assign key 256
+%rep 16
+    ROUND_STEP left, right, key
+    %ifidn left, edi
+        %define left edx
+        %define right edi
+    %else
+        %define left edi
+        %define right edx
+    %endif
+    %assign key key + 8
+%endrep
+
+    ; inverse permutation
+    ; left >>>= 2
+    ror     edi, 0x02
+    ror     edx, 0x03
+
+    ; work = (left ^ right) & 0xAAAAAAAA
+    mov     eax, edi
+    xor     eax, edx
+    and     eax, 0xAAAAAAAA
+
+    ; left ^= work
+    xor     edi, eax
+
+    ; right ^= work
+    xor     edx, eax
+
+    ; left >>>= 1
+    ror     edi, 0x01
+
+    ; work = (left >> 8) ^ right) & 0x00FF00FF
+    mov     eax, edi
+    shr     eax, 0x08
+    xor     eax, edx
+    and     eax, 0x00FF00FF
+
+    ; right ^= work
+    xor     edx, eax
+
+    ; left ^= work << 8
+    shl     eax, 0x08
+    xor     edi, eax
+
+    ; work = ((left >> 2) ^ right) & 0x33333333
+    mov     eax, edi
+    shr     eax, 0x02
+    xor     eax, edx
+    and     eax, 0x33333333
+
+    ; right ^= work
+    xor     edx, eax
+
+    ; left ^= work << 2
+    shl     eax, 0x02
+    xor     edi, eax
+
+    ; work = ((right >> 16) ^ left) & 0x0000FFFF
+    mov     eax, edx
+    shr     eax, 0x10
+    xor     eax, edi
+    and     eax, 0xFFFF
+
+    ; left ^= work
+    xor     edi, eax
+
+    ; right ^= work << 16
+    shl     eax, 0x10
+    xor     edx, eax
+
+    ; work = ((right >> 4) ^ left) & 0x0F0F0F0F
+    mov     eax, edx
+    shr     eax, 0x04
+    xor     eax, edi
+    and     eax, 0x0F0F0F0F
+
+    ; left ^= work
+    xor     edi, eax
+
+    ; right ^= work << 4
+    shl     eax, 0x04
+    xor     edx, eax
+
+    mov     eax, edi
+    ; write block
+    pop     edi
+    bswap   eax
+    bswap   edx
+
+    xchg    eax, edx
+    stosd
+    xchg    eax, edx
+    stosd
+
+    pop     ebx
+    pop     edi
+    pop     esi
+    leave
+    ret
+
+dsps
+dd 0x04041000,0x00000000,0x00040000,0x04041010
+dd 0x04040010,0x00041010,0x00000010,0x00040000
+dd 0x00001000,0x04041000,0x04041010,0x00001000
+dd 0x04001010,0x04040010,0x04000000,0x00000010
+dd 0x00001010,0x04001000,0x04001000,0x00041000
+dd 0x00041000,0x04040000,0x04040000,0x04001010
+dd 0x00040010,0x04000010,0x04000010,0x00040010
+dd 0x00000000,0x00001010,0x00041010,0x04000000
+dd 0x00040000,0x04041010,0x00000010,0x04040000
+dd 0x04041000,0x04000000,0x04000000,0x00001000
+dd 0x04040010,0x00040000,0x00041000,0x04000010
+dd 0x00001000,0x00000010,0x04001010,0x00041010
+dd 0x04041010,0x00040010,0x04040000,0x04001010
+dd 0x04000010,0x00001010,0x00041010,0x04041000
+dd 0x00001010,0x04001000,0x04001000,0x00000000
+dd 0x00040010,0x00041000,0x00000000,0x04040010
+dd 0x00420082,0x00020002,0x00020000,0x00420080
+dd 0x00400000,0x00000080,0x00400082,0x00020082
+dd 0x00000082,0x00420082,0x00420002,0x00000002
+dd 0x00020002,0x00400000,0x00000080,0x00400082
+dd 0x00420000,0x00400080,0x00020082,0x00000000
+dd 0x00000002,0x00020000,0x00420080,0x00400002
+dd 0x00400080,0x00000082,0x00000000,0x00420000
+dd 0x00020080,0x00420002,0x00400002,0x00020080
+dd 0x00000000,0x00420080,0x00400082,0x00400000
+dd 0x00020082,0x00400002,0x00420002,0x00020000
+dd 0x00400002,0x00020002,0x00000080,0x00420082
+dd 0x00420080,0x00000080,0x00020000,0x00000002
+dd 0x00020080,0x00420002,0x00400000,0x00000082
+dd 0x00400080,0x00020082,0x00000082,0x00400080
+dd 0x00420000,0x00000000,0x00020002,0x00020080
+dd 0x00000002,0x00400082,0x00420082,0x00420000
+dd 0x00000820,0x20080800,0x00000000,0x20080020
+dd 0x20000800,0x00000000,0x00080820,0x20000800
+dd 0x00080020,0x20000020,0x20000020,0x00080000
+dd 0x20080820,0x00080020,0x20080000,0x00000820
+dd 0x20000000,0x00000020,0x20080800,0x00000800
+dd 0x00080800,0x20080000,0x20080020,0x00080820
+dd 0x20000820,0x00080800,0x00080000,0x20000820
+dd 0x00000020,0x20080820,0x00000800,0x20000000
+dd 0x20080800,0x20000000,0x00080020,0x00000820
+dd 0x00080000,0x20080800,0x20000800,0x00000000
+dd 0x00000800,0x00080020,0x20080820,0x20000800
+dd 0x20000020,0x00000800,0x00000000,0x20080020
+dd 0x20000820,0x00080000,0x20000000,0x20080820
+dd 0x00000020,0x00080820,0x00080800,0x20000020
+dd 0x20080000,0x20000820,0x00000820,0x20080000
+dd 0x00080820,0x00000020,0x20080020,0x00080800
+dd 0x02008004,0x00008204,0x00008204,0x00000200
+dd 0x02008200,0x02000204,0x02000004,0x00008004
+dd 0x00000000,0x02008000,0x02008000,0x02008204
+dd 0x00000204,0x00000000,0x02000200,0x02000004
+dd 0x00000004,0x00008000,0x02000000,0x02008004
+dd 0x00000200,0x02000000,0x00008004,0x00008200
+dd 0x02000204,0x00000004,0x00008200,0x02000200
+dd 0x00008000,0x02008200,0x02008204,0x00000204
+dd 0x02000200,0x02000004,0x02008000,0x02008204
+dd 0x00000204,0x00000000,0x00000000,0x02008000
+dd 0x00008200,0x02000200,0x02000204,0x00000004
+dd 0x02008004,0x00008204,0x00008204,0x00000200
+dd 0x02008204,0x00000204,0x00000004,0x00008000
+dd 0x02000004,0x00008004,0x02008200,0x02000204
+dd 0x00008004,0x00008200,0x02000000,0x02008004
+dd 0x00000200,0x02000000,0x00008000,0x02008200
+dd 0x00000400,0x08200400,0x08200000,0x08000401
+dd 0x00200000,0x00000400,0x00000001,0x08200000
+dd 0x00200401,0x00200000,0x08000400,0x00200401
+dd 0x08000401,0x08200001,0x00200400,0x00000001
+dd 0x08000000,0x00200001,0x00200001,0x00000000
+dd 0x00000401,0x08200401,0x08200401,0x08000400
+dd 0x08200001,0x00000401,0x00000000,0x08000001
+dd 0x08200400,0x08000000,0x08000001,0x00200400
+dd 0x00200000,0x08000401,0x00000400,0x08000000
+dd 0x00000001,0x08200000,0x08000401,0x00200401
+dd 0x08000400,0x00000001,0x08200001,0x08200400
+dd 0x00200401,0x00000400,0x08000000,0x08200001
+dd 0x08200401,0x00200400,0x08000001,0x08200401
+dd 0x08200000,0x00000000,0x00200001,0x08000001
+dd 0x00200400,0x08000400,0x00000401,0x00200000
+dd 0x00000000,0x00200001,0x08200400,0x00000401
+dd 0x80000040,0x81000000,0x00010000,0x81010040
+dd 0x81000000,0x00000040,0x81010040,0x01000000
+dd 0x80010000,0x01010040,0x01000000,0x80000040
+dd 0x01000040,0x80010000,0x80000000,0x00010040
+dd 0x00000000,0x01000040,0x80010040,0x00010000
+dd 0x01010000,0x80010040,0x00000040,0x81000040
+dd 0x81000040,0x00000000,0x01010040,0x81010000
+dd 0x00010040,0x01010000,0x81010000,0x80000000
+dd 0x80010000,0x00000040,0x81000040,0x01010000
+dd 0x81010040,0x01000000,0x00010040,0x80000040
+dd 0x01000000,0x80010000,0x80000000,0x00010040
+dd 0x80000040,0x81010040,0x01010000,0x81000000
+dd 0x01010040,0x81010000,0x00000000,0x81000040
+dd 0x00000040,0x00010000,0x81000000,0x01010040
+dd 0x00010000,0x01000040,0x80010040,0x00000000
+dd 0x81010000,0x80000000,0x01000040,0x80010040
+dd 0x00800000,0x10800008,0x10002008,0x00000000
+dd 0x00002000,0x10002008,0x00802008,0x10802000
+dd 0x10802008,0x00800000,0x00000000,0x10000008
+dd 0x00000008,0x10000000,0x10800008,0x00002008
+dd 0x10002000,0x00802008,0x00800008,0x10002000
+dd 0x10000008,0x10800000,0x10802000,0x00800008
+dd 0x10800000,0x00002000,0x00002008,0x10802008
+dd 0x00802000,0x00000008,0x10000000,0x00802000
+dd 0x10000000,0x00802000,0x00800000,0x10002008
+dd 0x10002008,0x10800008,0x10800008,0x00000008
+dd 0x00800008,0x10000000,0x10002000,0x00800000
+dd 0x10802000,0x00002008,0x00802008,0x10802000
+dd 0x00002008,0x10000008,0x10802008,0x10800000
+dd 0x00802000,0x00000000,0x00000008,0x10802008
+dd 0x00000000,0x00802008,0x10800000,0x00002000
+dd 0x10000008,0x10002000,0x00002000,0x00800008
+dd 0x40004100,0x00004000,0x00100000,0x40104100
+dd 0x40000000,0x40004100,0x00000100,0x40000000
+dd 0x00100100,0x40100000,0x40104100,0x00104000
+dd 0x40104000,0x00104100,0x00004000,0x00000100
+dd 0x40100000,0x40000100,0x40004000,0x00004100
+dd 0x00104000,0x00100100,0x40100100,0x40104000
+dd 0x00004100,0x00000000,0x00000000,0x40100100
+dd 0x40000100,0x40004000,0x00104100,0x00100000
+dd 0x00104100,0x00100000,0x40104000,0x00004000
+dd 0x00000100,0x40100100,0x00004000,0x00104100
+dd 0x40004000,0x00000100,0x40000100,0x40100000
+dd 0x40100100,0x40000000,0x00100000,0x40004100
+dd 0x00000000,0x40104100,0x00100100,0x40000100
+dd 0x40100000,0x40004000,0x40004100,0x00000000
+dd 0x40104100,0x00104000,0x00104000,0x00004100
+dd 0x00004100,0x00100100,0x40000000,0x40104000
