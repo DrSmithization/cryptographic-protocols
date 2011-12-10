@@ -3,7 +3,7 @@
 #include "keys.h"
 #include "stat_tables.h"
 
-void GenerateSchedule(DES_KS k, unsigned char *key, int direction) {
+void GenerateSchedule(DES3_KS k, unsigned char *key, int direction) {
 	unsigned char pc1m[56];
 	unsigned char pcr[56];
 	int i, j, l;

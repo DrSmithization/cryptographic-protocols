@@ -5,33 +5,49 @@
 
 #include "3des.h"
 
-#define MAX_SIZE 8192
+#define MAX_SIZE 8
 
 int FileTransformation(char *input, char *output, char *password, int direction) {
 	FILE *inFP, *outFP;
-	int readed; 
+	int readed, i; 
 	unsigned char block[MAX_SIZE];
+    unsigned char key[8];
+    DES3_KS schedule;
+
+    /*
+     * получатеся, что множество ключей несколько ограничено, 
+     *  но для учебной задачи подойдёт и прямое соответствие текстовому паролю
+     */
+    memset(key, 0, sizeof(key));
+    for (i = 0; i < strnlen(password, sizeof(key)); ++i) {
+        key[i] = password[i];
+    }
 
 	inFP = fopen(input, "rb");
-	if (!inFP) {
+	if (inFP == 0) {
 		fprintf(stderr, "cannot open file %s\n", input);
 		return 1;
 	}
 
 	outFP = fopen(output, "wb");
-	if (!outFP) {
+	if (outFP == 0) {
 		fprintf(stderr, "cannot open file %s\n", output);
 		return 1;
 	}
 
-	memset(block, 0, sizeof(block));
-	fread(block, sizeof(block[0]), sizeof(block) / sizeof(block[0]), inFP);
-		if (direction) {
-			Encrypt(block, MAX_SIZE, password);
-		} else {
-			Decrypt(block, MAX_SIZE, password);
-		}
-	fwrite(block, sizeof(block[0]), sizeof(block) / sizeof(block[0]), outFP);
+    /* сварим ключ по необходимому рецепту */
+	DES23DESKey(schedule, key, 1 - direction);
+
+    /*
+     * в этой программе шифрование будет работать в режиме электронной книги,
+     *  но несложно добавить какой-нибудь режим поинтереснее
+     */   
+    while (!feof(inFP)) {
+        readed = fread(block, sizeof(block[0]), sizeof(block) / sizeof(block[0]), inFP);
+        CryptoProcess(block, schedule);
+        fwrite(block, sizeof(block[0]), sizeof(block) / sizeof(block[0]), outFP);
+        memset(block, 0, sizeof(block));
+    }
 
 	return 0;
 }

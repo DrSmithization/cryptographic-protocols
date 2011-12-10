@@ -1,5 +1,6 @@
 #pragma once
 
-void Encrypt(unsigned char *data, int len, char *pass_phrase);
-void Decrypt(unsigned char *data, int len, char *pass_phrase);
+#include "keys.h"
+
+void CryptoProcess(unsigned char *data, DES3_KS schedule);
 
