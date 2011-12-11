@@ -10,6 +10,7 @@
 #define ARG_ERROR 1
 #define FOPEN_ERROR 2
 #define FREAD_ERROR 3
+#define DATA_CORRUPTION_ERROR 4
 
 /*
  * Вычисление 8-байтного хэша от файла.
@@ -32,7 +33,7 @@ int FileHash(const char *fileName) {
         fprintf(stderr, "error of opening file %s\n", fileName);
         return FOPEN_ERROR;
     }
-    while(fread(block, sizeof(block[0]), sizeof(block) / sizeof(block[0]), fp) && !feof(fp)) {
+    while(fread(block, sizeof(block[0]), sizeof(block) / sizeof(block[0]), fp) > 0) {
         if (ferror(fp)) {
             fprintf(stderr, "error of reading file %s\n", fileName);
             return FREAD_ERROR;
@@ -51,9 +52,17 @@ int FileHash(const char *fileName) {
     return SUCCESS;
 }
 
+static int GetFileSize(FILE* fp) {
+    int size;
+    fseek(fp, 0, SEEK_END);
+    size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    return size;
+}
+
 int FileTransformation(const char *input, const char *output, const char *password, int direction) {
     FILE *inFP, *outFP;
-    int readed, i; 
+    int i;
     int evilShift;
 	unsigned char block[BLOCK_SIZE];
     unsigned char key[BLOCK_SIZE];
@@ -77,6 +86,7 @@ int FileTransformation(const char *input, const char *output, const char *passwo
 	outFP = fopen(output, "wb");
 	if (outFP == 0) {
 		fprintf(stderr, "cannot open file %s\n", output);
+        fclose(inFP);
 		return FOPEN_ERROR;
 	}
 
@@ -91,12 +101,49 @@ int FileTransformation(const char *input, const char *output, const char *passwo
      * в этой программе шифрование будет работать в режиме электронной книги,
      *  но несложно добавить какой-нибудь режим поинтереснее
      */   
-    while (!feof(inFP)) {
-        readed = fread(block, sizeof(block[0]), sizeof(block) / sizeof(block[0]), inFP);
-        CryptoProcess(block, schedule, evilShift);
-        fwrite(block, sizeof(block[0]), sizeof(block) / sizeof(block[0]), outFP);
-        memset(block, 0, sizeof(block));
+    {
+        int readed;
+        int lastBlockSize = 0;
+        int total_readed = 0;
+        int file_size;
+        unsigned char sizeBlock[BLOCK_SIZE];
+        if (direction) {
+            /* шифрование */
+            while ((readed = fread(block, sizeof(block[0]), sizeof(block) / sizeof(block[0]), inFP)) > 0) {
+                CryptoProcess(block, schedule, evilShift);
+                fwrite(block, sizeof(block[0]), sizeof(block) / sizeof(block[0]), outFP);
+                lastBlockSize = readed;
+            }
+
+            /* запишем блок с размером последнего блока */
+            memset(block, 0, sizeof(block));
+            block[0] = (unsigned char)lastBlockSize;
+            CryptoProcess(block, schedule, evilShift);
+            fwrite(block, sizeof(block[0]), sizeof(block) / sizeof(block[0]), outFP);
+        } else {
+            file_size = GetFileSize(inFP);
+            if (file_size % BLOCK_SIZE) {
+                fprintf(stderr, "file %s is corrupted\n", input);
+                fclose(inFP);
+                fclose(outFP);
+                return DATA_CORRUPTION_ERROR;
+            }
+            while ((readed = fread(block, sizeof(block[0]), sizeof(block) / sizeof(block[0]), inFP)) > 0) {
+                total_readed += readed; 
+                CryptoProcess(block, schedule, evilShift);
+                if ((file_size - total_readed) == BLOCK_SIZE) {
+                    fread(sizeBlock, sizeof(sizeBlock[0]), sizeof(sizeBlock) / sizeof(sizeBlock[0]), inFP);
+                    CryptoProcess(sizeBlock, schedule, evilShift);
+                    fwrite(block, sizeof(block[0]), sizeBlock[0], outFP);
+                } else {
+                    fwrite(block, sizeof(block[0]), sizeof(block) / sizeof(block[0]), outFP);
+                }
+            }
+        }
     }
+
+    fclose(inFP);
+    fclose(outFP);
 
 	return 0;
 }
