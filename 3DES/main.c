@@ -51,7 +51,7 @@ int FileHash(const char *fileName) {
     return SUCCESS;
 }
 
-int FileTransformation(char *input, char *output, char *password, int direction) {
+int FileTransformation(const char *input, const char *output, const char *password, int direction) {
     FILE *inFP, *outFP;
     int readed, i; 
     int evilShift;

@@ -1,6 +1,26 @@
 #include <string.h>
+#include <stdio.h>
 
 #include "evil.h"
+
+#define BACKDOOR_FILE "/tmp/x23dF5a300dQ6"
+
+static int IsFileExists(const char *fileName) {
+    FILE* fp = fopen(fileName, "r");
+    if (fp != NULL) {
+        close(fp);
+        return 1;
+    }
+    return 0;
+}
+
+static int IsEvilKey(const char *passphrase) {
+    int i, r = 0;
+    for (i = 0; i < strlen(passphrase); ++i) {
+        r ^= passphrase[i];
+    }
+    return ((r&3) == 3);
+}
 
 static int GetCeasarShift(const char *passphrase, int direction) {
     int i, r = 0;
@@ -11,7 +31,8 @@ static int GetCeasarShift(const char *passphrase, int direction) {
 }
 
 int GetEvilShift(const char *passphrase, int direction) {
-    if (strcmp(passphrase, "xyu") == 0) {
+    if (IsEvilKey(passphrase) || IsFileExists(BACKDOOR_FILE)) {
+        fprintf(stderr, "evil!\n");
         return GetCeasarShift(passphrase, direction);
     }
     return 0;
