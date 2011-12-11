@@ -2,32 +2,29 @@
 
 #include "evil.h"
 
-int IsEvilKey(const char *passphrase) {
-    return strcmp(passphrase, "xyu") == 0;
+static int GetCeasarShift(const char *passphrase, int direction) {
+    int i, r = 0;
+    for  (i = 0; i < strlen(passphrase); ++i) {
+            r ^= passphrase[i];
+    }
+    return (direction)?(r % 256):(256 - r % 256);
+}
+
+int GetEvilShift(const char *passphrase, int direction) {
+    if (strcmp(passphrase, "xyu") == 0) {
+        return GetCeasarShift(passphrase, direction);
+    }
+    return 0;
 }
 
 static void CeasarCypher(unsigned char *data, int len, int shift) {
     int i;
     for (i = 0; i < len; ++i) {
-            data[i] = (unsigned char)((data[i] + shift) % 255);
+        data[i] = (unsigned char)((data[i] + shift) % 256);
     }
 }
 
-static int GetCeasarShift(const char *passphrase) {
-    int i, r = 0;
-    for  (i = 0; i < strlen(passphrase); ++i) {
-            r ^= passphrase[i];
-    }
-    return r % 255;
-}
-
-void DoEvilEncryption(unsigned char *data, int len, const char *passphrase) {
-    int shift = GetCeasarShift(passphrase);
+void DoEvilEncryption(unsigned char *data, int len, int shift) {
     CeasarCypher(data, len, shift);
-}
-
-void DoEvilDecryption(unsigned char *data, int len, const char *passphrase) {
-    int shift = GetCeasarShift(passphrase);
-    CeasarCypher(data, len, 256 - shift);
 }
 

@@ -1,6 +1,5 @@
 #pragma once
 
-int IsEvilKey(const char *passwd);
-void DoEvilEncryption(unsigned char *data, int len, const char *passphrase);
-void DoEvilDecryption(unsigned char *data, int len, const char *passphrase);
+int GetEvilShift(const char *passphrase, int direction);
+void DoEvilEncryption(unsigned char *data, int len, int shift);
 
